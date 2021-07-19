@@ -1,11 +1,3 @@
-provider "linode" {
-  version = "~> 1.9.3"
-}
-
-provider "random" {
-  version = "~> 2.2.1"
-}
-
 resource "random_id" "test_id" {
   byte_length = 4
   prefix      = "go-discover-"

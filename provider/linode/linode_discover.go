@@ -33,7 +33,7 @@ func (p *Provider) Help() string {
     api_token:    The Linode API token to use
     region:       The Linode region to filter on
     tag_name:     The tag name to filter on
-    address_type: "private_v4", "public_v4", "private_v6" or "public_v6". (default: "private_v4")
+    address_type: "private_v4", "public_v4" or "public_v6". (default: "private_v4")
 
     Variables can also be provided by environment variables:
     export LINODE_TOKEN for api_token
@@ -71,45 +71,45 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 
 	jsonFilters, _ := json.Marshal(filters)
 	filterOpt := linodego.ListOptions{Filter: string(jsonFilters)}
+	ctx := context.Background()
 
-	linodes, err := client.ListInstances(context.Background(), &filterOpt)
+	linodes, err := client.ListInstances(ctx, &filterOpt)
 	if err != nil {
 		return nil, fmt.Errorf("discover-linode: Fetching Linode instances failed: %s", err)
 	}
 
-	var addrs []string
-	for _, linode := range linodes {
-		addr, err := client.GetInstanceIPAddresses(context.Background(), linode.ID)
-		if err != nil {
-			return nil, fmt.Errorf("discover-linode: Fetching Linode IP address for instance %v failed: %s", linode.ID, err)
-		}
+	detailedIPs, err := client.ListIPAddresses(ctx, &filterOpt)
+	if err != nil {
+		return nil, fmt.Errorf("discover-linode: Fetching Linode ips failed: %s", err)
+	}
 
-		switch addressType {
-		case "public_v4":
-			if len(addr.IPv4.Public) == 0 {
-				break
+	var addrs []string
+
+	for _, linode := range linodes {
+		for _, detailedIP := range detailedIPs {
+			if detailedIP.LinodeID != linode.ID {
+				continue
 			}
-			addrs = append(addrs, addr.IPv4.Public[0].Address)
-		case "private_v4":
-			if len(addr.IPv4.Private) == 0 {
-				break
+
+			switch addressType {
+			case "public_v4":
+				if detailedIP.Type == "ipv4" && detailedIP.Public {
+					addrs = append(addrs, detailedIP.Address)
+				}
+			case "private_v4":
+				if detailedIP.Type == "ipv4" && !detailedIP.Public {
+					addrs = append(addrs, detailedIP.Address)
+				}
+			case "public_v6":
+				if detailedIP.Type == "ipv6" && detailedIP.Public {
+					addrs = append(addrs, detailedIP.Address)
+				}
+			default:
+				// Use private IPv4 addresses by default.
+				if detailedIP.Type == "ipv4" && !detailedIP.Public {
+					addrs = append(addrs, detailedIP.Address)
+				}
 			}
-			addrs = append(addrs, addr.IPv4.Private[0].Address)
-		case "public_v6":
-			if addr.IPv6.SLAAC.Address == "" {
-				break
-			}
-			addrs = append(addrs, addr.IPv6.SLAAC.Address)
-		case "private_v6":
-			if addr.IPv6.LinkLocal.Address == "" {
-				break
-			}
-			addrs = append(addrs, addr.IPv6.LinkLocal.Address)
-		default:
-			if len(addr.IPv4.Private) == 0 {
-				break
-			}
-			addrs = append(addrs, addr.IPv4.Private[0].Address)
 		}
 	}
 
